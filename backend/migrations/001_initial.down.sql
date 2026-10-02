@@ -1,0 +1,9 @@
+DROP TABLE match_results;
+DROP TABLE user_picks;
+DROP TABLE recommendations;
+DROP TABLE predictions;
+DROP TABLE lineup_snapshots;
+DROP TABLE odds_snapshots;
+DROP TABLE matches;
+DROP TABLE teams;
+DROP TABLE competitions;
