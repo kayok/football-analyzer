@@ -9,6 +9,10 @@ import {
   resultLabel,
   selection,
 } from "../../lib/format";
+import {
+  groupPicksByDate,
+  groupRecommendationsByDate,
+} from "../../lib/history";
 import type { History } from "../../lib/types";
 export default function HistoryPage() {
   const [date, setDate] = useState("");
@@ -17,6 +21,7 @@ export default function HistoryPage() {
     `/api/v1/history?timezone=${encodeURIComponent(tz)}&limit=200${date ? `&date=${date}` : ""}`,
   );
   const names = new Map(data?.matches.items.map((m) => [m.id, m]) || []);
+  const pickGroups = groupPicksByDate(data?.picks.items || [], tz);
   return (
     <>
       <header className="page-header">
@@ -75,37 +80,61 @@ export default function HistoryPage() {
       </div>
       <section className="panel">
         <h2>รายการที่คุณเลือก</h2>
+        <p className="muted">แยกตามวันที่เลือก · {tz}</p>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>คู่แข่งขัน / รายการ</th>
+                <th>เลือกเมื่อ</th>
                 <th>ราคา ณ เลือก</th>
                 <th>EV ณ เลือก</th>
                 <th>ผล</th>
                 <th>กำไร (units)</th>
               </tr>
             </thead>
-            <tbody>
-              {data?.picks.items.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <Link href={`/matches/${p.match_id}`}>
-                      {p.match.home} vs {p.match.away}
-                    </Link>
-                    <small>
-                      {selection(p, p.match)} {p.demo && "· ตัวอย่าง"}
-                    </small>
-                  </td>
-                  <td>{decimal(p.odds_at_pick)}</td>
-                  <td>{percent(p.ev_at_pick, true)}</td>
-                  <td>
-                    {p.cancelled_at ? "ยกเลิกรายการ" : resultLabel(p.result)}
-                  </td>
-                  <td>{decimal(p.net_profit_units)}</td>
+            {pickGroups.map((group) => (
+              <tbody key={group.date}>
+                <tr className="history-date-heading">
+                  <th scope="rowgroup" colSpan={6}>
+                    วันที่เลือก <time dateTime={group.date}>{group.label}</time>
+                    <span className="muted">
+                      {" "}
+                      · {group.items.length} รายการ
+                    </span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
+                {group.items.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <Link href={`/matches/${p.match_id}`}>
+                        {p.match.home} vs {p.match.away}
+                      </Link>
+                      <small>
+                        {selection(p, p.match)} {p.demo && "· ตัวอย่าง"}
+                      </small>
+                      <small>
+                        แข่งขัน{" "}
+                        <time dateTime={p.match.kickoff}>
+                          {dateTime(p.match.kickoff, true)}
+                        </time>
+                      </small>
+                    </td>
+                    <td>
+                      <time dateTime={p.picked_at}>
+                        {dateTime(p.picked_at, true)}
+                      </time>
+                    </td>
+                    <td>{decimal(p.odds_at_pick)}</td>
+                    <td>{percent(p.ev_at_pick, true)}</td>
+                    <td>
+                      {p.cancelled_at ? "ยกเลิกรายการ" : resultLabel(p.result)}
+                    </td>
+                    <td>{decimal(p.net_profit_units)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            ))}
           </table>
         </div>
         {data?.picks.items.length === 0 && (
@@ -129,10 +158,24 @@ export default function HistoryPage() {
                   <th>เหตุผล</th>
                 </tr>
               </thead>
-              <tbody>
-                {data?.recommendations.items
-                  .filter((r) => r.status === status)
-                  .map((r) => (
+              {groupRecommendationsByDate(
+                data?.recommendations.items.filter(
+                  (r) => r.status === status,
+                ) || [],
+                tz,
+              ).map((group) => (
+                <tbody key={group.date}>
+                  <tr className="history-date-heading">
+                    <th scope="rowgroup" colSpan={5}>
+                      วันที่สร้าง{" "}
+                      <time dateTime={group.date}>{group.label}</time>
+                      <span className="muted">
+                        {" "}
+                        · {group.items.length} รายการ
+                      </span>
+                    </th>
+                  </tr>
+                  {group.items.map((r) => (
                     <tr key={r.id}>
                       <td>
                         <Link href={`/matches/${r.match_id}`}>
@@ -146,11 +189,16 @@ export default function HistoryPage() {
                           : "—"}
                       </td>
                       <td>{percent(r.prediction?.ev, true)}</td>
-                      <td>{dateTime(r.generated_at)}</td>
+                      <td>
+                        <time dateTime={r.generated_at}>
+                          {dateTime(r.generated_at, true)}
+                        </time>
+                      </td>
                       <td>{r.reasons[0]}</td>
                     </tr>
                   ))}
-              </tbody>
+                </tbody>
+              ))}
             </table>
           </div>
         </section>

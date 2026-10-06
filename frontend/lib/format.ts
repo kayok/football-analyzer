@@ -3,10 +3,11 @@ export const percent = (n: number | null | undefined, signed = false) =>
   n == null ? "—" : `${signed && n > 0 ? "+" : ""}${(n * 100).toFixed(1)}%`;
 export const decimal = (n: number | null | undefined) =>
   n == null ? "—" : n.toFixed(2);
-export const dateTime = (date: string) =>
+export const dateTime = (date: string, includeYear = false) =>
   new Intl.DateTimeFormat("th-TH", {
     day: "numeric",
     month: "short",
+    year: includeYear ? "numeric" : undefined,
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(date));

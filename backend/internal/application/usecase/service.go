@@ -36,10 +36,11 @@ type Service struct {
 	ai       ports.AISummaryProvider
 	rules    rec.Rules
 	timezone string
+	userID   string
 }
 
 func New(store ports.Store, clock ports.Clock, ids ports.IDs, engine engineports.Engine, football ports.FootballProvider, ai ports.AISummaryProvider, rules rec.Rules, timezone string) *Service {
-	return &Service{store, clock, ids, engine, football, ai, rules, timezone}
+	return &Service{store: store, clock: clock, ids: ids, engine: engine, football: football, ai: ai, rules: rules, timezone: timezone}
 }
 func (s *Service) Health(ctx context.Context) error               { return s.store.Health(ctx) }
 func (s *Service) State(ctx context.Context) (ports.State, error) { return s.store.View(ctx) }
@@ -124,6 +125,7 @@ func (s *Service) Today(ctx context.Context, tz string) ([]Card, error) {
 	if err != nil {
 		return nil, err
 	}
+	st = s.owned(st)
 	cards := []Card{}
 	for _, m := range st.Matches {
 		if !m.Kickoff.Before(a) && m.Kickoff.Before(b) {
@@ -138,6 +140,7 @@ func (s *Service) Detail(ctx context.Context, id string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
+	st = s.owned(st)
 	var m *match.Match
 	for _, v := range st.Matches {
 		if v.ID == id {
@@ -216,8 +219,9 @@ func (s *Service) Pick(ctx context.Context, recommendationID string) (pick.Pick,
 		if err != nil {
 			return fail("NOT_SELECTABLE", "คำแนะนำหมดอายุหรือเลือกไม่ได้ กรุณาโหลดข้อมูลใหม่", 409)
 		}
+		p.UserID = s.userID
 		for _, old := range st.Picks {
-			if old.CancelledAt == nil && old.MatchID == p.MatchID && key(old.Selection) == key(p.Selection) {
+			if old.UserID == s.userID && old.CancelledAt == nil && old.MatchID == p.MatchID && key(old.Selection) == key(p.Selection) {
 				return fail("DUPLICATE_PICK", "เลือกคู่นี้และตลาดนี้ไว้แล้ว", 409)
 			}
 		}
@@ -230,7 +234,7 @@ func (s *Service) Pick(ctx context.Context, recommendationID string) (pick.Pick,
 func (s *Service) Cancel(ctx context.Context, id string) error {
 	return s.store.Update(ctx, func(st *ports.State) error {
 		for i, p := range st.Picks {
-			if p.ID == id {
+			if p.ID == id && p.UserID == s.userID {
 				v, err := p.Cancel(s.clock.Now())
 				if err != nil {
 					return fail("SETTLED_PICK", "ยกเลิกรายการที่สรุปผลแล้วไม่ได้", 409)
@@ -247,6 +251,7 @@ func (s *Service) Picks(ctx context.Context, includeCancelled bool) ([]PickView,
 	if err != nil {
 		return nil, err
 	}
+	st = s.owned(st)
 	out := []PickView{}
 	for _, p := range st.Picks {
 		if !includeCancelled && p.CancelledAt != nil {
@@ -293,6 +298,7 @@ func (s *Service) History(ctx context.Context, date, tz string) (History, error)
 	if err != nil {
 		return History{}, err
 	}
+	st = s.owned(st)
 	h := History{Cards: []Card{}, Recommendations: []rec.Recommendation{}, Picks: []PickView{}, Results: []match.Result{}}
 	selected := map[string]match.Match{}
 	for _, m := range st.Matches {
@@ -602,4 +608,21 @@ func (s *Service) currentCard(c Card) Card {
 		c.Recommendation = &r
 	}
 	return c
+}
+
+// ForUser scopes all personal reads and mutations. Worker services keep the empty legacy owner.
+func (s *Service) ForUser(id string) *Service {
+	scoped := *s
+	scoped.userID = id
+	return &scoped
+}
+func (s *Service) owned(st ports.State) ports.State {
+	owned := make([]pick.Pick, 0)
+	for _, p := range st.Picks {
+		if p.UserID == s.userID {
+			owned = append(owned, p)
+		}
+	}
+	st.Picks = owned
+	return st
 }

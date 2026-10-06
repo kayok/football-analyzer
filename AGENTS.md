@@ -33,7 +33,7 @@ Infrastructure:
 - Prefer Dockerized infrastructure for local dependencies.
 - Do not install PostgreSQL directly on the host.
 - Do not connect to real football APIs or real AI providers in the first implementation.
-- Keep the unauthenticated, single-user MVP bound to localhost; follow the explicit MVP/deferred scope in `PROJECT_SPEC.md`.
+- Keep the membership-enabled MVP bound to localhost; follow the explicit MVP/deferred scope in `PROJECT_SPEC.md`.
 
 Safety:
 

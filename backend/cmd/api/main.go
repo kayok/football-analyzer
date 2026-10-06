@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"football/infrastructure/bootstrap"
+	"football/infrastructure/security"
+	"football/internal/application/usecase"
 	delivery "football/internal/delivery/http"
 	"log/slog"
 	"net/http"
@@ -23,7 +25,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
-	server := &http.Server{Addr: "127.0.0.1:" + bootstrap.Env("API_PORT", "8080"), Handler: delivery.New(svc, bootstrap.Env("FRONTEND_ORIGIN", "http://localhost:3000"), log), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	members, err := usecase.NewMembership(store, security.Passwords{}, security.Tokens{}, bootstrap.Clock{}, bootstrap.IDs{})
+	if err != nil {
+		log.Error("membership startup failed", "error", err)
+		os.Exit(1)
+	}
+	server := &http.Server{Addr: "127.0.0.1:" + bootstrap.Env("API_PORT", "8080"), Handler: delivery.New(svc, members, bootstrap.Env("FRONTEND_ORIGIN", "http://localhost:3000"), log, bootstrap.Clock{}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	done := make(chan error, 1)
 	go func() { log.Info("API listening", "address", server.Addr); done <- server.ListenAndServe() }()
 	select {

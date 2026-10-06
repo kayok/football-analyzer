@@ -81,7 +81,7 @@ func load(ctx context.Context, tx pgx.Tx, bounds ...interface{}) (ports.State, e
 	if err != nil {
 		return st, err
 	}
-	st.Picks, err = read[pick.Pick](ctx, tx, query(`SELECT data || jsonb_build_object('cancelled_at',cancelled_at,'settled_at',settled_at,'result',result,'net_profit_units',net_profit_units) FROM user_picks ORDER BY picked_at,id`, false), bounds...)
+	st.Picks, err = read[pick.Pick](ctx, tx, query(`SELECT data || jsonb_build_object('user_id',COALESCE(user_id::text,''),'cancelled_at',cancelled_at,'settled_at',settled_at,'result',result,'net_profit_units',net_profit_units) FROM user_picks ORDER BY picked_at,id`, false), bounds...)
 	if err != nil {
 		return st, err
 	}
@@ -245,7 +245,7 @@ func save(ctx context.Context, tx pgx.Tx, before, st ports.State) error {
 		if err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO user_picks(id,recommendation_id,match_id,market,selection,line,picked_at,cancelled_at,settled_at,result,net_profit_units,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, p.ID, p.RecommendationID, p.MatchID, p.Market, p.Side, p.Line, p.PickedAt, p.CancelledAt, p.SettledAt, p.Result, p.Profit, raw); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO user_picks(user_id,id,recommendation_id,match_id,market,selection,line,picked_at,cancelled_at,settled_at,result,net_profit_units,data) VALUES(NULLIF($13,'')::uuid,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, p.ID, p.RecommendationID, p.MatchID, p.Market, p.Side, p.Line, p.PickedAt, p.CancelledAt, p.SettledAt, p.Result, p.Profit, raw, p.UserID); err != nil {
 			return err
 		}
 	}

@@ -1,15 +1,20 @@
 import type { Pick } from "./types";
+export class APIError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 export async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const base = process.env.NEXT_PUBLIC_API_URL;
-  if (!base)
-    throw new Error(
-      "ยังไม่ได้ตั้งค่า NEXT_PUBLIC_API_URL กรุณาเปิดแอปผ่าน make frontend",
-    );
+  const base = ""; // Same-origin Next.js proxy keeps the session cookie on localhost.
   const response = await fetch(`${base}${path}`, {
     ...options,
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...options?.headers },
     cache: "no-store",
   });
@@ -17,7 +22,15 @@ export async function request<T>(
     const body = (await response.json().catch(() => null)) as {
       error?: { message?: string };
     } | null;
-    throw new Error(
+    if (
+      response.status === 401 &&
+      typeof window !== "undefined" &&
+      !path.startsWith("/api/v1/auth/")
+    ) {
+      window.dispatchEvent(new Event("auth-expired"));
+    }
+    throw new APIError(
+      response.status,
       body?.error?.message || "โหลดข้อมูลไม่ได้ กรุณาตรวจว่า backend เปิดอยู่",
     );
   }

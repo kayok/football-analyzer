@@ -1,4 +1,12 @@
 import { test, expect } from "@playwright/test";
+import { loginTestMember } from "./login";
+test.beforeEach(async ({ page }) => {
+  test.skip(
+    !process.env.E2E_EMAIL || !process.env.E2E_PASSWORD,
+    "Set E2E_EMAIL and E2E_PASSWORD for an existing dedicated test account",
+  );
+  await loginTestMember(page);
+});
 test("Today → select → My Picks → cancel → History and Match Detail", async ({
   page,
 }) => {

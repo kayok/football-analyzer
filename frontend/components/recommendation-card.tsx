@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import type { Card } from "../lib/types";
-import { selectPick } from "../lib/api";
+import type { Card, Pick } from "../lib/types";
+import { cancelPick, selectPick } from "../lib/api";
 import { decimal, kickoff, percent, selection } from "../lib/format";
 export function RecommendationCard({
   card,
@@ -14,7 +14,8 @@ export function RecommendationCard({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [dismissed, setDismissed] = useState(false),
-    [selected, setSelected] = useState("");
+    [selected, setSelected] = useState<Pick | null>(null),
+    [cancelled, setCancelled] = useState<string[]>([]);
   const r = card.recommendation,
     p = r?.prediction,
     o = r?.odds,
@@ -24,8 +25,8 @@ export function RecommendationCard({
     setBusy(true);
     setError("");
     try {
-      await selectPick(r.id);
-      setSelected(r.id);
+      const pick = await selectPick(r.id);
+      setSelected(pick);
       onPicked();
     } catch (e) {
       setError((e as Error).message);
@@ -33,7 +34,28 @@ export function RecommendationCard({
       setBusy(false);
     }
   }
-  const picked = !!card.pick || selected === r?.id;
+  const pick =
+    selected && selected.recommendation_id === r?.id
+      ? card.pick?.id === selected.id
+        ? card.pick
+        : selected
+      : card.pick;
+  const activePick = pick && !cancelled.includes(pick.id) ? pick : null;
+  async function cancel() {
+    if (!activePick) return;
+    setBusy(true);
+    setError("");
+    try {
+      await cancelPick(activePick.id);
+      setCancelled((ids) => [...ids, activePick.id]);
+      setSelected(null);
+      onPicked();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <article
       className={`match-card ${status.toLowerCase()} ${dismissed ? "dismissed" : ""}`}
@@ -87,24 +109,31 @@ export function RecommendationCard({
         </p>
       )}
       <div className="card-actions">
-        {status !== "PASS" && !dismissed && (
+        {activePick ? (
           <>
-            <button
-              className="primary"
-              onClick={choose}
-              disabled={busy || picked}
-            >
-              {picked ? "เลือกแล้ว ✓" : busy ? "กำลังบันทึก…" : "เลือกเล่น"}
+            <button className="primary" disabled>
+              เลือกแล้ว ✓
+            </button>
+            {!activePick.settled_at && (
+              <button className="quiet" onClick={cancel} disabled={busy}>
+                {busy ? "กำลังยกเลิก…" : "ยกเลิกรายการ"}
+              </button>
+            )}
+          </>
+        ) : status !== "PASS" && !dismissed ? (
+          <>
+            <button className="primary" onClick={choose} disabled={busy}>
+              {busy ? "กำลังบันทึก…" : "เลือกเล่น"}
             </button>
             <button
               className="quiet"
               onClick={() => setDismissed(true)}
-              disabled={picked}
+              disabled={busy}
             >
               ไม่เล่น
             </button>
           </>
-        )}
+        ) : null}
         {dismissed && (
           <button className="quiet" onClick={() => setDismissed(false)}>
             แสดงอีกครั้ง

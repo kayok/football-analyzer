@@ -8,11 +8,18 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { RecommendationCard } from "./recommendation-card";
-import type { Card } from "../lib/types";
+import type { Card, Pick } from "../lib/types";
 vi.mock("../lib/api", () => ({
-  selectPick: vi.fn().mockResolvedValue({ id: "pick" }),
+  selectPick: vi
+    .fn()
+    .mockResolvedValue({
+      id: "pick",
+      recommendation_id: "rec",
+      settled_at: null,
+    }),
+  cancelPick: vi.fn().mockResolvedValue(undefined),
 }));
-import { selectPick } from "../lib/api";
+import { cancelPick, selectPick } from "../lib/api";
 const card: Card = {
   id: "match",
   home: "Liverpool",
@@ -71,11 +78,98 @@ const card: Card = {
     },
   },
 };
+const pick: Pick = {
+  id: "existing-pick",
+  match_id: card.id,
+  recommendation_id: "rec",
+  market: "1X2",
+  selection: "home",
+  line: null,
+  odds_at_pick: 2,
+  probability_at_pick: 0.56,
+  ev_at_pick: 0.12,
+  bookmaker: "MockBook",
+  model_version: "v1",
+  stake_units: 1,
+  picked_at: "2026-10-02T10:01:00Z",
+  cancelled_at: null,
+  settled_at: null,
+  result: null,
+  net_profit_units: null,
+  demo: false,
+  match: card,
+};
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
 describe("recommendation card", () => {
+  it("cancels a newly selected pick without waiting for a page refresh", async () => {
+    const reload = vi.fn();
+    render(<RecommendationCard card={card} onPicked={reload} />);
+    fireEvent.click(screen.getByRole("button", { name: "เลือกเล่น" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "ยกเลิกรายการ" }),
+    );
+    await waitFor(() => expect(cancelPick).toHaveBeenCalledWith("pick"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "เลือกเล่น" })).toBeEnabled(),
+    );
+    expect(reload).toHaveBeenCalledTimes(2);
+  });
+  it("cancels an existing pick and can select a new one with stale card props", async () => {
+    render(<RecommendationCard card={{ ...card, pick }} onPicked={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "ยกเลิกรายการ" }));
+    fireEvent.click(await screen.findByRole("button", { name: "เลือกเล่น" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "ยกเลิกรายการ" }),
+    );
+    await waitFor(() => expect(cancelPick).toHaveBeenLastCalledWith("pick"));
+    expect(cancelPick).toHaveBeenNthCalledWith(1, "existing-pick");
+    expect(
+      await screen.findByRole("button", { name: "เลือกเล่น" }),
+    ).toBeEnabled();
+  });
+  it("still allows cancellation when the recommendation becomes PASS", async () => {
+    render(
+      <RecommendationCard
+        card={{
+          ...card,
+          pick,
+          recommendation: { ...card.recommendation!, status: "PASS" },
+        }}
+        onPicked={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "ยกเลิกรายการ" }));
+    await waitFor(() => expect(cancelPick).toHaveBeenCalledWith(pick.id));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "ยกเลิกรายการ" })).toBeNull(),
+    );
+    expect(screen.queryByRole("button", { name: "เลือกเล่น" })).toBeNull();
+  });
+  it("keeps the selected state and allows retry after a failed cancellation", async () => {
+    vi.mocked(cancelPick).mockRejectedValueOnce(new Error("ยกเลิกไม่สำเร็จ"));
+    render(<RecommendationCard card={{ ...card, pick }} onPicked={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "ยกเลิกรายการ" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "ยกเลิกไม่สำเร็จ",
+    );
+    expect(screen.getByRole("button", { name: "เลือกแล้ว ✓" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ยกเลิกรายการ" })).toBeEnabled();
+  });
+  it("does not offer cancellation for settled picks", () => {
+    render(
+      <RecommendationCard
+        card={{
+          ...card,
+          pick: { ...pick, settled_at: "2026-10-02T14:00:00Z" },
+        }}
+        onPicked={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "ยกเลิกรายการ" })).toBeNull();
+  });
   it("shows backend values and stores a pick only after clicking", async () => {
     const reload = vi.fn();
     render(<RecommendationCard card={card} onPicked={reload} />);

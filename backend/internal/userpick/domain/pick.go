@@ -11,6 +11,7 @@ import (
 
 type Pick struct {
 	ID               string `json:"id"`
+	UserID           string `json:"user_id"`
 	RecommendationID string `json:"recommendation_id"`
 	MatchID          string `json:"match_id"`
 	odds.Selection

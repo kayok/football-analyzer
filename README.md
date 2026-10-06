@@ -4,7 +4,7 @@
 
 **Today → Recommendation → เลือกเล่น → My Picks → History**
 
-รุ่นนี้ใช้บน localhost สำหรับผู้ใช้คนเดียว ยังไม่มีระบบ login และไม่พร้อมเปิดสู่เครือข่ายสาธารณะ โมเดล Poisson ใช้ expected goals จำลอง จึงไม่ได้แสดงประสิทธิภาพการทำนายการแข่งขันจริง
+รุ่นนี้ใช้บน localhost มีระบบสมาชิกด้วยอีเมลและรหัสผ่าน และยังไม่พร้อมเปิดสู่เครือข่ายสาธารณะ โมเดล Poisson ใช้ expected goals จำลอง จึงไม่ได้แสดงประสิทธิภาพการทำนายการแข่งขันจริง
 
 ## เริ่มใช้งาน
 
@@ -24,6 +24,12 @@ make dev
 
 เปิด **http://localhost:3000** (ใช้ hostname นี้ให้ตรงกับ FRONTEND_ORIGIN)
 
+สมัครสมาชิกด้วยชื่อที่แสดง อีเมล และรหัสผ่านภาษาอังกฤษ ตัวเลข และอักขระพิเศษทั่วไป 9–72 ตัวอักษร โดยไม่มีช่องว่าง ไม่ต้องเชื่อม Google หรือเพิ่ม API key ระบบเข้าสู่บัญชีทันทีหลังสมัคร และมีปุ่มออกจากระบบที่ sidebar เซสชันมีอายุ 7 วัน รหัสผ่านเก็บเป็น bcrypt hash และ cookie เป็น HttpOnly บัญชีแรกที่สมัครจะได้รับรายการเดิมทั้งหมดที่ยังไม่มีเจ้าของ; บัญชีต่อไปเริ่มด้วยรายการว่าง แต่ดูคำแนะนำระบบร่วมกันได้
+
+แต่ละบัญชีเห็นและยกเลิกได้เฉพาะรายการของตัวเอง รวมถึง ROI/ประวัติส่วนตัว ระบบยังไม่มีการยืนยันอีเมลหรือกู้รหัสผ่าน ควรใช้รหัสผ่านสำหรับทดสอบ local โดยเฉพาะ Migration 002 เพิ่มสมาชิกโดยไม่ลบข้อมูลเดิมและไม่รองรับ rollback เพื่อป้องกันการสูญเสียบัญชีและเจ้าของรายการ
+
+หลังอัปเดตโค้ด ให้หยุด `make dev` เดิมด้วย Ctrl+C แล้วรัน `make dev` ใหม่ เพื่อรัน migration และเริ่ม API รุ่นที่มีสมาชิก
+
 - API: http://127.0.0.1:8080
 - PostgreSQL: 127.0.0.1:55432
 - `make db-down` หยุด container โดยเก็บ volume ไว้
@@ -42,7 +48,7 @@ make frontend      # terminal 2
 make worker        # terminal 3: เพิ่ม snapshot ราคา/lineup/prediction/recommendation
 ```
 
-seed มี 3 คู่วันนี้: PLAY, WATCH, PASS และ 2 คู่ที่จบแล้วพร้อม picks ตัวอย่างสำหรับ History ภายในวันเดียวกัน seed ซ้ำไม่สร้าง fixture หรือ source snapshot ซ้ำ แต่เพิ่ม prediction/recommendation รุ่นใหม่ของคู่ที่ยังไม่จบ และไม่แก้ picks เดิม Fixtures วันนี้ขึ้นกับ clock และ APP_TIMEZONE; ตัวอย่าง seed picks ใช้ flag `demo` และแสดงคำว่า “ตัวอย่าง” ใน UI
+seed มี 3 คู่วันนี้: PLAY, WATCH, PASS และ 2 คู่ที่จบแล้วพร้อม picks ตัวอย่างสำหรับ History ภายในวันเดียวกัน seed ซ้ำไม่สร้าง fixture หรือ source snapshot ซ้ำ แต่เพิ่ม prediction/recommendation รุ่นใหม่ของคู่ที่ยังไม่จบ และไม่แก้ picks เดิม Fixtures วันนี้ขึ้นกับ clock และ APP_TIMEZONE; demo picks ที่สร้างหลังมีสมาชิกยังไม่มีเจ้าของ จึงไม่รวมในประวัติส่วนตัว; ตัวอย่าง seed picks ใช้ flag `demo` และแสดงคำว่า “ตัวอย่าง” ใน UI
 
 ราคามีอายุ 15 นาที: เมื่อหมดอายุให้รัน `make worker` แล้วกด “โหลดข้อมูลใหม่” แอปไม่ sync อัตโนมัติ การแสดงผลวันนี้ตรวจความพร้อมปัจจุบันอีกครั้ง แต่ประวัติแสดง recommendation ที่บันทึกจริงในแต่ละ generation
 
@@ -57,6 +63,8 @@ make worker ARGS='--finish-match MATCH_UUID --home 2 --away 0'
 คำสั่งนี้ใช้กับ fixture ของ mock provider เท่านั้น บันทึกผลจำลองและ settle picks ที่ยังไม่ได้สรุปผลใน transaction หลังจากนั้นเปิด My Picks/History ดูผลและ ROI Worker หรือ seed ครั้งต่อไปจะไม่ย้อนสถานะคู่ที่จบแล้วกลับไปเป็น scheduled ไม่มีการเชื่อมต่อ provider จริง
 
 ## Configuration
+
+Browser เรียก `/api` บน hostname เดียวกับหน้าเว็บ และ Next.js proxy ไปยัง NEXT_PUBLIC_API_URL เพื่อให้ session cookie ทำงานได้แม้ Go API ใช้ 127.0.0.1
 
 Makefile อ่าน `.env` ที่ root แล้วส่ง environment ให้ทั้ง Go และ Next.js เมื่อรัน frontend โดยตรงต้องส่ง NEXT_PUBLIC_API_URL ด้วย ค่าตัวแปรที่ขึ้นต้น NEXT_PUBLIC ถูกฝังใน frontend ตอน build; ต้อง build ใหม่เมื่อเปลี่ยน URL
 
@@ -169,9 +177,9 @@ Integration test ใช้ schema ชั่วคราวที่มีชื�
 make test-integration
 ```
 
-ครอบคลุม migration repeatability, seed repeatability, PLAY/WATCH/PASS, concurrent duplicate selection, immutable snapshots, cancellation, settlement, stale/superseded recommendations, date queries และ transaction rollback
+ครอบคลุมสมัคร/เข้าสู่ระบบ, cookie, session expiry/logout, rate limit, CSRF, การแยกข้อมูลแต่ละบัญชี, migration repeatability, seed repeatability, PLAY/WATCH/PASS, concurrent duplicate selection, immutable snapshots, cancellation, settlement, stale/superseded recommendations, date queries และ transaction rollback
 
-Browser tests ใช้ API/frontend ที่เปิดอยู่และ Chrome ที่ติดตั้งในเครื่อง:
+Browser tests ใช้ frontend ที่เปิดอยู่และ Chrome ที่ติดตั้งในเครื่อง:
 
 ```bash
 make worker
@@ -179,7 +187,7 @@ cd frontend
 npm run test:e2e
 ```
 
-ทดสอบเลือก WATCH → My Picks → ยกเลิก → History → Match Detail และ mobile layout พร้อมตรวจ PASS ที่ไม่มีปุ่มเลือก Tests จะสร้าง pick ที่ยกเลิกแล้วในข้อมูล demo local หากไม่มี Chrome ให้ติดตั้ง browser ผ่าน Playwright แล้วปรับ channel ใน config โดยไม่จำเป็นต้องติดตั้ง system packages ในการรันปกติ
+การทดสอบสมาชิกจำลอง API เพื่อทดสอบสมัคร/รหัสผ่านไม่ตรงกัน/เข้าสู่ระบบ/ออกจากระบบ/มือถือ โดยไม่สร้างบัญชีจริง การทดสอบ flow และ hydration จะข้ามหากไม่ได้ตั้ง E2E_EMAIL/E2E_PASSWORD ของบัญชีทดสอบที่มีอยู่แล้ว ให้ใช้บัญชีทดสอบแยก เพราะ flow เลือก WATCH → My Picks → ยกเลิก → History → Match Detail จะสร้าง pick ที่ยกเลิกแล้วในบัญชีนั้น หากไม่มี Chrome ให้ติดตั้ง browser ผ่าน Playwright แล้วปรับ channel ใน config โดยไม่จำเป็นต้องติดตั้ง system packages ในการรันปกติ
 
 ## Migrations และการ reset
 
@@ -216,3 +224,13 @@ Implement `FootballProvider.Fetch` ใน infrastructure ตัวใหม่�
 Implement `AISummaryProvider.Reasons` สำหรับคำอธิบายภาษาไทย แล้ว inject แทน MockAISummaryProvider เมื่อเพิ่ม provider จริง ควรส่ง structured evidence ที่จำเป็นให้ interface และมี fallback คำอธิบาย deterministic AI ไม่มีสิทธิ์คำนวณ probability หรือเป็น source of truth ของ EV
 
 งานที่ยังไม่อยู่ใน MVP: real football/AI providers, authentication/authorization/multi-user deployment, learned xG/team ratings/lineup adjustments, automatic timed scheduler และ CLV ไม่มีการติดตั้ง PostgreSQL ลง host และไม่มีการส่งข้อมูลไป provider จริง
+
+
+## Membership API
+
+- `POST /api/v1/auth/register`: `{ "name": "ชื่อที่แสดง", "email": "you@example.com", "password": "..." }`
+- `POST /api/v1/auth/login`: email/password; บันทึก session cookie
+- `GET /api/v1/auth/me`: บัญชีปัจจุบัน
+- `POST /api/v1/auth/logout`: ถอน session ปัจจุบัน
+
+API ส่วนอื่นต้องส่ง session cookie; mutation ต้องมี Origin ตรง FRONTEND_ORIGIN ค่า user_id ของ pick มาจาก session เท่านั้น ระบบตอบ 401 เมื่อยังไม่เข้าสู่ระบบ/เซสชันหมดอายุ, 403 เมื่อ Origin ไม่ได้รับอนุญาต และ 429 เมื่อลองสมัคร/เข้าสู่ระบบเกิน 10 ครั้งต่อนาทีต่อ client IP

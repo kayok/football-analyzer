@@ -1,27 +1,38 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"football/internal/application/ports"
 	"football/internal/application/usecase"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Handler struct {
-	svc    *usecase.Service
-	origin string
-	log    *slog.Logger
+	clock    ports.Clock
+	svc      *usecase.Service
+	origin   string
+	log      *slog.Logger
+	members  *usecase.Membership
+	mu       sync.Mutex
+	attempts map[string]attempt
 }
 
-func New(svc *usecase.Service, origin string, log *slog.Logger) http.Handler {
-	h := &Handler{svc, origin, log}
+func New(svc *usecase.Service, members *usecase.Membership, origin string, log *slog.Logger, clock ports.Clock) http.Handler {
+	h := &Handler{svc: svc, origin: origin, log: log, members: members, attempts: make(map[string]attempt), clock: clock}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.health)
+	mux.HandleFunc("POST /api/v1/auth/register", h.register)
+	mux.HandleFunc("POST /api/v1/auth/login", h.login)
+	mux.HandleFunc("POST /api/v1/auth/logout", h.logout)
+	mux.HandleFunc("GET /api/v1/auth/me", h.me)
 	mux.HandleFunc("GET /api/v1/matches/today", h.today)
 	mux.HandleFunc("GET /api/v1/matches/{id}", h.detail)
 	mux.HandleFunc("GET /api/v1/matches/{id}/{kind}", h.part)
@@ -44,6 +55,7 @@ func New(svc *usecase.Service, origin string, log *slog.Logger) http.Handler {
 				return
 			}
 			w.Header().Set("Access-Control-Allow-Origin", h.origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -52,8 +64,32 @@ func New(svc *usecase.Service, origin string, log *slog.Logger) http.Handler {
 			w.WriteHeader(204)
 			return
 		}
+		if (r.Method == http.MethodPost || r.Method == http.MethodDelete) && r.Header.Get("Origin") != h.origin {
+			h.err(w, &usecase.Error{Code: "ORIGIN_DENIED", Message: "กรุณาทำรายการผ่านหน้าเว็บ", Status: 403})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/api/v1/auth/register" && r.URL.Path != "/api/v1/auth/login" {
+			cookie, err := r.Cookie(sessionCookie)
+			if err != nil {
+				h.err(w, &usecase.Error{Code: "UNAUTHENTICATED", Message: "กรุณาเข้าสู่ระบบ", Status: 401})
+				return
+			}
+			user, err := h.members.Current(r.Context(), cookie.Value)
+			if err != nil {
+				h.err(w, err)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), userKey{}, user.ID))
+		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+type userKey struct{}
+
+func (h *Handler) service(r *http.Request) *usecase.Service {
+	id, _ := r.Context().Value(userKey{}).(string)
+	return h.svc.ForUser(id)
 }
 func (h *Handler) json(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -112,7 +148,7 @@ func (h *Handler) today(w http.ResponseWriter, r *http.Request) {
 		h.err(w, err)
 		return
 	}
-	v, err := h.svc.Today(r.Context(), r.URL.Query().Get("timezone"))
+	v, err := h.service(r).Today(r.Context(), r.URL.Query().Get("timezone"))
 	if err != nil {
 		h.err(w, err)
 		return
@@ -120,7 +156,7 @@ func (h *Handler) today(w http.ResponseWriter, r *http.Request) {
 	h.json(w, 200, page(v, a, b))
 }
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
-	v, err := h.svc.Detail(r.Context(), r.PathValue("id"))
+	v, err := h.service(r).Detail(r.Context(), r.PathValue("id"))
 	if err != nil {
 		h.err(w, err)
 		return
@@ -128,7 +164,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	h.json(w, 200, v)
 }
 func (h *Handler) part(w http.ResponseWriter, r *http.Request) {
-	d, err := h.svc.Detail(r.Context(), r.PathValue("id"))
+	d, err := h.service(r).Detail(r.Context(), r.PathValue("id"))
 	if err != nil {
 		h.err(w, err)
 		return
@@ -172,7 +208,7 @@ func (h *Handler) picks(w http.ResponseWriter, r *http.Request) {
 		h.err(w, err)
 		return
 	}
-	v, err := h.svc.Picks(r.Context(), r.URL.Query().Get("include_cancelled") == "true")
+	v, err := h.service(r).Picks(r.Context(), r.URL.Query().Get("include_cancelled") == "true")
 	if err != nil {
 		h.err(w, err)
 		return
@@ -199,7 +235,7 @@ func (h *Handler) pick(w http.ResponseWriter, r *http.Request) {
 		h.err(w, &usecase.Error{Code: "INVALID_INPUT", Message: "ส่ง JSON ได้หนึ่งรายการ", Status: 400})
 		return
 	}
-	p, err := h.svc.Pick(r.Context(), input.RecommendationID)
+	p, err := h.service(r).Pick(r.Context(), input.RecommendationID)
 	if err != nil {
 		h.err(w, err)
 		return
@@ -207,7 +243,7 @@ func (h *Handler) pick(w http.ResponseWriter, r *http.Request) {
 	h.json(w, 201, p)
 }
 func (h *Handler) pickDetail(w http.ResponseWriter, r *http.Request) {
-	p, err := h.svc.PickByID(r.Context(), r.PathValue("id"))
+	p, err := h.service(r).PickByID(r.Context(), r.PathValue("id"))
 	if err != nil {
 		h.err(w, err)
 		return
@@ -215,7 +251,7 @@ func (h *Handler) pickDetail(w http.ResponseWriter, r *http.Request) {
 	h.json(w, 200, p)
 }
 func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Cancel(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.service(r).Cancel(r.Context(), r.PathValue("id")); err != nil {
 		h.err(w, err)
 		return
 	}
@@ -231,7 +267,7 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
 	if date == "" {
 		date = r.URL.Query().Get("date")
 	}
-	v, err := h.svc.History(r.Context(), date, r.URL.Query().Get("timezone"))
+	v, err := h.service(r).History(r.Context(), date, r.URL.Query().Get("timezone"))
 	if err != nil {
 		h.err(w, err)
 		return

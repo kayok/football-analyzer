@@ -1,8 +1,8 @@
 # Football Analyzer — Project Specification
 
-Build a private football analysis web application as a local, single-user MVP with maintainable architecture and verified end-to-end behavior.
+Build a private football analysis web application as a local MVP with maintainable architecture and verified end-to-end behavior.
 
-The first implementation runs on localhost without authentication. Public deployment and multi-user access are outside this MVP; authentication and authorization are required before enabling either.
+The application runs on localhost with email/password membership. Each account owns its picks and personal performance history. Public deployment, email verification, password recovery, and third-party sign-in are deferred.
 
 ## Tech Stack
 
@@ -140,7 +140,7 @@ Pick rules:
 - The backend copies values from the stored recommendation and its referenced prediction/odds snapshots in one transaction. Do not trust odds, probability, or EV supplied by the frontend.
 - Allow selection of PLAY or WATCH only, before kickoff, using the current recommendation and a valid odds snapshot within oddsMaxAge (default 15 minutes, as defined in Section 6). Inject a clock for deterministic checks/tests.
 - Reject stale, superseded, PASS, or already-started recommendations with a clear error; require the user to review the current recommendation before retrying.
-- Allow only one active pick per match, market, selection, and line. Repeated selection must not create duplicate active picks.
+- Allow only one active pick per account, match, market, selection, and line. Repeated selection must not create duplicate active picks.
 - The action `ไม่เล่น` dismisses the card for the current UI session only; it does not create a pick or change the recommendation.
 - DELETE cancels an unsettled pick by setting `cancelled_at`; never physically delete its snapshot. Repeated cancellation is idempotent. Settled picks cannot be cancelled.
 - My Picks shows active picks by default. History retains cancelled picks with a cancellation label and excludes them from performance statistics.
@@ -984,11 +984,11 @@ Never commit:
 
 Do not hardcode credentials.
 
-Local-only MVP requirements:
+Local-only membership requirements:
 
-- Bind the API, frontend development server, and published PostgreSQL port to loopback by default. Do not expose unauthenticated services on 0.0.0.0.
+- Bind the API, frontend development server, and published PostgreSQL port to loopback by default. Keep services bound to localhost; public deployment is deferred.
 - Allow browser origins only for the configured local frontend; do not use wildcard CORS.
-- Authentication, per-user data ownership, authorization, TLS, and deployment hardening are deferred and required before public or multi-user deployment.
+- Email/password authentication, per-account pick ownership and authorization are implemented locally. TLS and deployment hardening remain required before public deployment.
 - Example development credentials are placeholders for local use only and must be supplied through environment configuration.
 
 ---
@@ -1114,3 +1114,17 @@ Today
 → History
 
 using a real PostgreSQL database in Docker and mock football data.
+
+
+# 31. Membership (requested extension)
+
+- Register with display name, email, and password; log in and log out without Google or an email provider.
+- Normalize email to lowercase; New registrations require 9–72 visible ASCII characters (English letters, digits and standard punctuation); reject whitespace, Thai, emoji and other non-ASCII characters. Existing account passwords remain usable at login. Store bcrypt hashes only (cost 12).
+- Persist random opaque sessions as SHA-256 hashes with seven-day expiry. Use HttpOnly, SameSite=Lax cookies; Secure when served via HTTPS.
+- Require authentication on all /api/v1 application endpoints except register/login. Health remains public. Require the configured frontend Origin on mutation requests; reject unauthorized CORS origins.
+- Proxy browser API calls through Next.js /api to keep cookies same-origin when the frontend uses localhost and the Go API uses 127.0.0.1. Never put session tokens in localStorage.
+- Resolve the account from the server session; never trust a user ID supplied by the browser. Scope pick creation, uniqueness, cancellation, details, card selection state and personal ROI/history to that account. Fixtures, system recommendations and model Brier scores remain shared.
+- Serialize initial registration with worker/pick transactions; assign existing ownerless local picks to the first registered account without changing their saved prediction/odds snapshots. Later seed demo picks remain ownerless and do not appear in personal records.
+- Limit register/login attempts to ten per minute per direct client IP. The MVP does not trust forwarded IP headers and remains local.
+- Migration 002 preserves legacy data. Membership rollback is deliberately unsupported because it would lose account/session data and merge account ownership.
+- Test authentication errors, session expiry/revocation, CSRF/origin rejection, legacy ownership assignment, and cross-account read/cancel isolation with PostgreSQL.
