@@ -47,6 +47,7 @@ export interface Recommendation {
   prediction: Prediction | null;
 }
 export interface Match {
+  provider_name?: string;
   id: string;
   home: string;
   away: string;

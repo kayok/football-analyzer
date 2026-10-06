@@ -119,3 +119,51 @@ func TestMembershipValidationAndSessions(t *testing.T) {
 	}
 
 }
+
+func TestOwnerOnlyMembership(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	store := &memberMemory{map[string]member.Member{
+		"owner@example.test": {ID: "owner", Email: "owner@example.test", PasswordHash: "hashed:owner-password"},
+		"other@example.test": {ID: "other", Email: "other@example.test", PasswordHash: "hashed:other-password"},
+	}, map[string]string{}, map[string]time.Time{}}
+	for _, email := range []string{"", "invalid"} {
+		if _, err := NewPrivateMembership(store, fakePasswords{}, fakeTokens{}, fixedClock{now}, ids{}, email); err == nil {
+			t.Fatal("invalid owner configuration accepted")
+		}
+	}
+	svc, err := NewPrivateMembership(store, fakePasswords{}, fakeTokens{}, fixedClock{now}, ids{}, " OWNER@example.test ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.Register(ctx, "New", "new@example.test", "new-password"); err == nil {
+		t.Fatal("public registration accepted")
+	}
+	if len(store.users) != 2 {
+		t.Fatal("registration changed accounts")
+	}
+	if _, _, err := svc.Login(ctx, "other@example.test", "other-password"); err == nil {
+		t.Fatal("other account accepted")
+	}
+	if len(store.sessions) != 0 {
+		t.Fatal("unauthorized login created session")
+	}
+	if _, _, err := svc.Login(ctx, "owner@example.test", "wrong-password"); err == nil {
+		t.Fatal("wrong owner password accepted")
+	}
+	_, token, err := svc.Login(ctx, " OWNER@example.test ", "owner-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, err := svc.Current(ctx, token); err != nil || u.ID != "owner" {
+		t.Fatal("owner session rejected", err)
+	}
+	legacy := strings.Repeat("y", 43)
+	store.CreateSession(ctx, sessionHash(legacy), "other", now, now.Add(SessionLifetime))
+	if _, err := svc.Current(ctx, legacy); err == nil {
+		t.Fatal("old non-owner session accepted")
+	}
+	if len(store.users) != 2 {
+		t.Fatal("owner restriction deleted accounts")
+	}
+}

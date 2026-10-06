@@ -134,7 +134,7 @@ export function MemberMenu() {
           </button>
         </>
       ) : (
-        !loading && <Link href="/login">เข้าสู่ระบบ / สมัครสมาชิก</Link>
+        !loading && <Link href="/login">เข้าสู่ระบบ</Link>
       )}
       {error && (
         <p role="alert" className="error-text">

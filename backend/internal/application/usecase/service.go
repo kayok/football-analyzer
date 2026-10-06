@@ -28,15 +28,25 @@ func (e *Error) Error() string                { return e.Message }
 func fail(code, msg string, status int) error { return &Error{code, msg, status} }
 
 type Service struct {
-	store    ports.Store
-	clock    ports.Clock
-	ids      ports.IDs
-	engine   engineports.Engine
-	football ports.FootballProvider
-	ai       ports.AISummaryProvider
-	rules    rec.Rules
-	timezone string
-	userID   string
+	store        ports.Store
+	clock        ports.Clock
+	ids          ports.IDs
+	engine       engineports.Engine
+	football     ports.FootballProvider
+	ai           ports.AISummaryProvider
+	rules        rec.Rules
+	timezone     string
+	userID       string
+	providerName string
+	realData     bool
+}
+
+func (s *Service) WithRealData() *Service { scoped := *s; scoped.realData = true; return &scoped }
+
+func (s *Service) WithProvider(name string) *Service {
+	scoped := *s
+	scoped.providerName = name
+	return &scoped
 }
 
 func New(store ports.Store, clock ports.Clock, ids ports.IDs, engine engineports.Engine, football ports.FootballProvider, ai ports.AISummaryProvider, rules rec.Rules, timezone string) *Service {
@@ -212,6 +222,9 @@ func (s *Service) Pick(ctx context.Context, recommendationID string) (pick.Pick,
 			}
 		}
 		current := latest(*st, m.ID)
+		if s.providerName != "" && m.Provider != s.providerName {
+			return fail("WRONG_DATA_SOURCE", "รายการนี้เป็นข้อมูลจากโหมดอื่น กรุณาโหลดข้อมูลใหม่", 409)
+		}
 		if current == nil || current.ID != r.ID {
 			return fail("STALE_RECOMMENDATION", "คำแนะนำเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่", 409)
 		}
@@ -347,6 +360,9 @@ func key(s odds.Selection) string {
 }
 func oddsKey(o odds.Snapshot) string { return key(o.Selection) + "/" + o.Bookmaker }
 func (s *Service) Run(ctx context.Context, seed bool) error {
+	if seed && s.realData {
+		return fmt.Errorf("mock seed disabled in real-data mode; use make worker to sync")
+	}
 	now := s.clock.Now()
 	incoming, err := s.football.Fetch(ctx, now, s.timezone)
 	if err != nil {
@@ -357,9 +373,11 @@ func (s *Service) Run(ctx context.Context, seed bool) error {
 			found := false
 			for i, old := range st.Matches {
 				if old.ID == m.ID {
-					m.Kickoff = old.Kickoff
-					if old.Status != "scheduled" {
-						m.Status = old.Status
+					if !s.realData {
+						m.Kickoff = old.Kickoff
+						if old.Status != "scheduled" {
+							m.Status = old.Status
+						}
 					}
 					st.Matches[i] = m
 					found = true
@@ -412,6 +430,29 @@ func (s *Service) Run(ctx context.Context, seed bool) error {
 				if stored.ID == m.ID {
 					m = stored
 					break
+				}
+			}
+			if s.realData && m.Provider == s.providerName && m.Status == "scheduled" {
+				scores := []prediction.HistoricalScore{}
+				for _, previous := range st.Matches {
+					if previous.Provider != m.Provider || previous.CompetitionID != m.CompetitionID || !previous.Kickoff.Before(now.AddDate(0, 0, -1)) || previous.Kickoff.Before(now.AddDate(0, 0, -180)) {
+						continue
+					}
+					for _, result := range st.Results {
+						if result.MatchID == previous.ID && result.Status == "finished" && !result.RecordedAt.After(now) {
+							// Current fetched history is known at now, before the new prediction snapshot.
+							scores = append(scores, prediction.HistoricalScore{HomeID: previous.HomeID, AwayID: previous.AwayID, Home: result.Home, Away: result.Away, Kickoff: previous.Kickoff, ObservedAt: result.RecordedAt})
+						}
+					}
+				}
+				h, a, err := prediction.RecentGoals(m.HomeID, m.AwayID, now, scores)
+				if err == nil {
+					m.ExpectedHome, m.ExpectedAway = h, a
+				}
+				for i := range st.Matches {
+					if st.Matches[i].ID == m.ID {
+						st.Matches[i] = m
+					}
 				}
 			}
 			// Historical demo predictions use honest mock pre-kickoff input times; current runs never backdate.
@@ -601,7 +642,7 @@ func (s *Service) currentCard(c Card) Card {
 		r.Status = status
 		r.ReasonCode = reason
 		if reason == "STALE_ODDS" {
-			r.Reasons = []string{"ราคาหมดอายุ กรุณารัน worker เพื่ออัปเดตข้อมูลจำลอง"}
+			r.Reasons = []string{"ราคาหมดอายุ กรุณารัน worker เพื่ออัปเดตข้อมูล"}
 		} else {
 			r.Reasons = []string{"การแข่งขันเริ่มแล้วหรือจบแล้ว"}
 		}
@@ -617,6 +658,15 @@ func (s *Service) ForUser(id string) *Service {
 	return &scoped
 }
 func (s *Service) owned(st ports.State) ports.State {
+	if s.providerName != "" {
+		matches := []match.Match{}
+		for _, m := range st.Matches {
+			if m.Provider == s.providerName {
+				matches = append(matches, m)
+			}
+		}
+		st.Matches = matches
+	}
 	owned := make([]pick.Pick, 0)
 	for _, p := range st.Picks {
 		if p.UserID == s.userID {

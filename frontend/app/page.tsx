@@ -74,7 +74,14 @@ export default function Today() {
             </button>
           ))}
         </div>
-        <span className="muted">{tz} · ข้อมูลจำลอง</span>
+        <span className="muted">
+          {tz} ·{" "}
+          {cards.some((c) => c.provider_name === "api-football")
+            ? "API-Football · ข้อมูลจริง"
+            : cards.length
+              ? "ข้อมูลจำลอง"
+              : "ยังไม่มีข้อมูลคู่แข่งขัน"}
+        </span>
       </div>
       <Feedback error={error} loading={loading} retry={reload} />
       {!loading && !error && shown.length === 0 && (
@@ -90,8 +97,8 @@ export default function Today() {
         ยังไม่คุ้มหรือข้อมูลใช้ไม่ได้
         <br />
         <small>
-          ราคามีอายุไม่เกิน 15 นาที กรุณารัน worker
-          เพื่ออัปเดตข้อมูลจำลองเมื่อราคาหมดอายุ
+          ราคามีอายุไม่เกิน 15 นาที กรุณารัน worker เพื่อซิงก์ข้อมูล
+          ราคาต้นทางอาจยังเก่าเกินเกณฑ์แม้เพิ่งซิงก์
         </small>
       </div>
     </>

@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 export default function Layout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const realData = process.env.FOOTBALL_PROVIDER === "api-football";
   return (
     <html lang="th">
       <body>
@@ -35,9 +36,12 @@ export default function Layout({
               </nav>
               <MemberMenu />
               <div className="sidebar-foot">
-                <span className="dot" /> โหมดข้อมูลจำลอง
+                <span className="dot" />{" "}
+                {realData ? "API-Football · ข้อมูลจริง" : "โหมดข้อมูลจำลอง"}
                 <small>
-                  Poisson · v1-mock-poisson
+                  {realData
+                    ? "Poisson · ผลย้อนหลัง"
+                    : "Poisson · v1-mock-poisson"}
                   <br />
                   เดิมพันจำลอง 1 unit ต่อรายการ
                 </small>
@@ -46,8 +50,10 @@ export default function Layout({
             <main>
               <AuthGate>{children}</AuthGate>
               <footer>
-                ข้อมูลทั้งหมดเป็นข้อมูลจำลองสำหรับทดสอบระบบ ·
-                คุณเป็นผู้ตัดสินใจเลือกเอง
+                {realData
+                  ? "ข้อมูลจาก API-Football · โมเดลพื้นฐานจากผลย้อนหลัง"
+                  : "ข้อมูลทั้งหมดเป็นข้อมูลจำลองสำหรับทดสอบระบบ"}{" "}
+                · คุณเป็นผู้ตัดสินใจเลือกเอง
               </footer>
             </main>
           </div>

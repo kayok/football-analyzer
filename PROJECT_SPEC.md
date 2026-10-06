@@ -1128,3 +1128,34 @@ using a real PostgreSQL database in Docker and mock football data.
 - Limit register/login attempts to ten per minute per direct client IP. The MVP does not trust forwarded IP headers and remains local.
 - Migration 002 preserves legacy data. Membership rollback is deliberately unsupported because it would lose account/session data and merge account ownership.
 - Test authentication errors, session expiry/revocation, CSRF/origin rejection, legacy ownership assignment, and cross-account read/cancel isolation with PostgreSQL.
+
+# 32. Owner-only access (requested extension)
+
+- The HTTP API requires a valid OWNER_EMAIL and permits login and every authenticated request only for that normalized email.
+- Disable public registration in the use case and remove registration controls from the frontend. Reject existing sessions belonging to other accounts without deleting accounts or historical data.
+- Preserve the owner's existing credentials, snapshots and picks. Do not change passwords automatically.
+- Provision a new owner through a local management command only, using OWNER_EMAIL and a password read from stdin rather than command-line arguments. Passwords follow Section 31; provisioning must not overwrite existing accounts.
+- Existing membership and account isolation remain available internally for management and regression tests. Owner-only access supersedes public registration in Section 31.
+- Keep localhost binding. This change does not deploy to a VPS or make the MVP ready for public access.
+
+# 33. Real football data (requested extension)
+
+- Add API-Football as an opt-in FootballProvider. Read API_FOOTBALL_KEY only in the Go process; never expose keys to the browser or log upstream error bodies containing credentials.
+- Default to mock until real credentials are configured. Use FOOTBALL_PROVIDER=api-football to select the real source; never silently fall back to mock after upstream failure.
+- Initial real coverage: Premier League (39), La Liga (140), Serie A (135), Bundesliga (78), Ligue 1 (61) and UEFA Nations League (5), configurable by IDs. Fetch today's fixtures, persisted unfinished fixtures, pre-match odds, available lineups and injury reports.
+- Map external IDs to stable provider-scoped UUIDs. Retain previous mock records; isolate active-source views so mock results and real statistics are not mixed.
+- Honor source odds update times for age checks. Never turn old quotes into fresh quotes by changing their captured_at. Support only exact recognized full-regulation 1X2, Asian Handicap and goals Over/Under markets.
+- Use final regulation scores for settlement, including when a fixture ends after extra time or penalties. Suspended or abandoned real matches remain pending until the provider supplies a final result or cancellation.
+- Real mode uses a separately versioned transparent Poisson baseline from completed league results in the preceding 180 days, excluding the last 24 hours. At least three home games for the selected home team and three away games for the selected away team are required. Shrink scoring/conceding averages by two league-average games and average attack with opponent defence. Calculate expected goals in Go domain/use cases, never in the provider adapter or React.
+- This baseline is not measured xG and has no established predictive performance. Persist resulting expected-goals inputs and model version on each prediction; missing inputs result in PASS with unavailable metrics.
+- Sync is manual via worker. Bound requests per run, support pagination, use context and timeouts, and stop on HTTP or provider-envelope errors without persisting a partial sync. Per-run limits are not daily-quota enforcement.
+- Mock seeding is skipped in real mode. Do not fabricate retrospective predictions or demo picks for real historical fixtures.
+- Use deterministic rule explanations rather than introducing an external AI dependency. Public deployment remains a separate task.
+
+# 34. API usage reporting (requested extension)
+
+- Report attempted requests, HTTP responses and counts by endpoint for each provider run, including failed runs.
+- Read daily and minute limits/remaining counts separately from API-Football headers. Unknown or invalid values remain null; never assume the user's daily plan limit.
+- Derive daily usage only from valid provider-reported limit and remaining values. Low/moderate/high thresholds are below 50%, at least 50%, and at least 80%; zero remaining is exhausted.
+- Stop further calls in the same run if the provider reports zero daily or minute remaining quota. Do not retry automatically or log API keys, request headers or upstream response bodies.
+- Display this report in worker terminal logs. Persistent and frontend quota dashboards are outside this extension.

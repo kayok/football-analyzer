@@ -96,7 +96,12 @@ export default function MatchDetail() {
             )}
           </section>
           <section className="panel">
-            <h2>รายชื่อผู้เล่น · ข้อมูลจำลอง</h2>
+            <h2>
+              รายชื่อผู้เล่น ·{" "}
+              {d.provider_name === "api-football"
+                ? "API-Football"
+                : "ข้อมูลจำลอง"}
+            </h2>
             {l ? (
               <>
                 <p className="muted">บันทึกเมื่อ {dateTime(l.captured_at)}</p>
@@ -114,7 +119,7 @@ export default function MatchDetail() {
                       <h4>บาดเจ็บ</h4>
                       <p>{l[side].injuries.join(" · ") || "ไม่มีข้อมูล"}</p>
                       <h4>ติดโทษแบน</h4>
-                      <p>{l[side].suspensions.join(" · ") || "ไม่มี"}</p>
+                      <p>{l[side].suspensions.join(" · ") || "ไม่มีข้อมูล"}</p>
                     </div>
                   ))}
                 </div>

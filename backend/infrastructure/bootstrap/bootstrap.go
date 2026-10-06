@@ -7,12 +7,14 @@ import (
 	"football/infrastructure/ai"
 	"football/infrastructure/footballapi"
 	"football/infrastructure/postgres"
+	"football/internal/application/ports"
 	"football/internal/application/usecase"
 	"football/internal/prediction/engine"
 	rec "football/internal/recommendation/domain"
 	"math"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -59,6 +61,36 @@ func Open(ctx context.Context) (*postgres.Store, *usecase.Service, error) {
 		return nil, nil, err
 	}
 	eng := engine.Poisson{}
-	svc := usecase.New(store, Clock{}, IDs{}, eng, footballapi.MockFootballProvider{Engine: eng}, ai.MockAISummaryProvider{}, rec.Rules{PlayEV: threshold, MaxAge: age}, tz)
+	var provider ports.FootballProvider = footballapi.MockFootballProvider{Engine: eng}
+	var summary ports.AISummaryProvider = ai.MockAISummaryProvider{}
+	name := Env("FOOTBALL_PROVIDER", "mock")
+	switch name {
+	case "mock":
+	case "api-football":
+		leagues := []int{}
+		for _, raw := range strings.Split(Env("API_FOOTBALL_LEAGUES", "39,140,135,78,61"), ",") {
+			id, err := strconv.Atoi(strings.TrimSpace(raw))
+			if err != nil || id <= 0 {
+				store.Close()
+				return nil, nil, fmt.Errorf("invalid API_FOOTBALL_LEAGUES")
+			}
+			leagues = append(leagues, id)
+		}
+		budget, err := strconv.Atoi(Env("API_FOOTBALL_MAX_REQUESTS", "50"))
+		if err != nil || budget < 1 || budget > 100 {
+			store.Close()
+			return nil, nil, fmt.Errorf("API_FOOTBALL_MAX_REQUESTS must be 1–100")
+		}
+		provider = footballapi.APIFootball{Key: os.Getenv("API_FOOTBALL_KEY"), Leagues: leagues, Store: store, MaxRequests: budget, ReportUsage: footballapi.LogUsage}
+		eng.ModelVersion = "v1-recent-goals-poisson"
+		summary = ai.RuleSummaryProvider{}
+	default:
+		store.Close()
+		return nil, nil, fmt.Errorf("invalid FOOTBALL_PROVIDER")
+	}
+	svc := usecase.New(store, Clock{}, IDs{}, eng, provider, summary, rec.Rules{PlayEV: threshold, MaxAge: age}, tz).WithProvider(name)
+	if name != "mock" {
+		svc = svc.WithRealData()
+	}
 	return store, svc, nil
 }

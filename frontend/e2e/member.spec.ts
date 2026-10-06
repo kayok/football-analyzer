@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
-// Mock only test requests: never register the first member in the user's database.
-test("register, validate passwords, log out and log in", async ({ page }) => {
+// Mock API requests so the owner login test never changes real accounts.
+test("owner login, no registration, logout and mobile layout", async ({ page }) => {
   let authenticated = false;
-  let registered = false;
   const user = {
     id: "test-member",
     name: "ผู้ทดสอบ",
@@ -16,20 +15,12 @@ test("register, validate passwords, log out and log in", async ({ page }) => {
     if (path === "/api/v1/auth/me") {
       status = authenticated ? 200 : 401;
       body = authenticated ? user : { error: { message: "กรุณาเข้าสู่ระบบ" } };
-    } else if (path === "/api/v1/auth/register") {
-      const input = route.request().postDataJSON();
-      expect(input.name).toBe(user.name);
-      expect(input.email).toBe(user.email);
-      registered = authenticated = true;
-      status = 201;
-      body = user;
     } else if (path === "/api/v1/auth/logout") {
       authenticated = false;
       status = 204;
     } else if (path === "/api/v1/auth/login") {
       const input = route.request().postDataJSON();
       authenticated =
-        registered &&
         input.email === user.email &&
         input.password === "Test!1234";
       status = authenticated ? 200 : 401;
@@ -50,29 +41,11 @@ test("register, validate passwords, log out and log in", async ({ page }) => {
   });
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
-  await page
-    .getByRole("button", { name: "ยังไม่มีบัญชี? สมัครสมาชิก", exact: true })
-    .click();
-  await page.getByLabel("ชื่อที่แสดง").fill(user.name);
+  await expect(page.getByRole("button", { name: /สมัครสมาชิก/ })).toHaveCount(0);
+  await expect(page.locator(".auth-panel")).toContainText("ไม่เปิดรับสมัครสมาชิก");
   await page.getByLabel("อีเมล", { exact: true }).fill(user.email);
-  await page.getByLabel("รหัสผ่าน", { exact: true }).fill("ภาษาไทยทดสอบ");
-  await page.getByLabel("ยืนยันรหัสผ่าน").fill("ภาษาไทยทดสอบ");
-  await page.getByRole("button", { name: "สมัครสมาชิก", exact: true }).click();
-  expect(
-    await page
-      .getByLabel("รหัสผ่าน", { exact: true })
-      .evaluate((input) => (input as HTMLInputElement).checkValidity()),
-  ).toBe(false);
-  expect(registered).toBe(false);
   await page.getByLabel("รหัสผ่าน", { exact: true }).fill("Test!1234");
-  await page.getByLabel("ยืนยันรหัสผ่าน").fill("different-password");
-  await page.getByRole("button", { name: "สมัครสมาชิก", exact: true }).click();
-  await expect(page.locator(".auth-panel").getByRole("alert")).toHaveText(
-    "รหัสผ่านทั้งสองช่องไม่ตรงกัน",
-  );
-  expect(registered).toBe(false);
-  await page.getByLabel("ยืนยันรหัสผ่าน").fill("Test!1234");
-  await page.getByRole("button", { name: "สมัครสมาชิก", exact: true }).click();
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
   await expect(page.getByRole("heading", { name: "สนามวันนี้" })).toBeVisible();
   await expect(page.locator(".member-menu")).toContainText(user.name);
   await page.reload();
@@ -88,6 +61,17 @@ test("register, validate passwords, log out and log in", async ({ page }) => {
   await page.getByLabel("รหัสผ่าน", { exact: true }).fill("Test!1234");
   await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
   await expect(page.getByRole("heading", { name: "สนามวันนี้" })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const width of [320, 390, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(page.locator(".member-menu")).toContainText(user.email);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      `Authenticated layout overflows at ${width}px`,
+    ).toBe(true);
+    await expect(page.getByRole("link", { name: /ประวัติและผลลัพธ์/ }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "ออกจากระบบ", exact: true })).toBeVisible();
+  }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "ออกจากระบบ", exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);

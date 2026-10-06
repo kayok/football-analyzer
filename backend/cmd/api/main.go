@@ -25,7 +25,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
-	members, err := usecase.NewMembership(store, security.Passwords{}, security.Tokens{}, bootstrap.Clock{}, bootstrap.IDs{})
+	members, err := usecase.NewPrivateMembership(store, security.Passwords{}, security.Tokens{}, bootstrap.Clock{}, bootstrap.IDs{}, os.Getenv("OWNER_EMAIL"))
 	if err != nil {
 		log.Error("membership startup failed", "error", err)
 		os.Exit(1)

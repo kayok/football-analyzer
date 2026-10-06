@@ -287,6 +287,33 @@ func TestPostgresVerticalSlice(t *testing.T) {
 		t.Fatal("other cancellation affected owner", err)
 	}
 	handler := delivery.New(svc, members, "http://localhost:3000", slog.New(slog.NewTextHandler(io.Discard, nil)), clk)
+	privateMembers, err := usecase.NewPrivateMembership(store, security.Passwords{}, security.Tokens{}, clk, bootstrap.IDs{}, owner.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateHandler := delivery.New(svc, privateMembers, "http://localhost:3000", slog.New(slog.NewTextHandler(io.Discard, nil)), clk)
+	for _, tc := range []struct {
+		method, path, body, token string
+		status                    int
+	}{
+		{"POST", "/api/v1/auth/register", `{"name":"New","email":"new@example.test","password":"new-password"}`, "", 403},
+		{"POST", "/api/v1/auth/login", `{"email":"other@example.test","password":"test-password-456"}`, "", 401},
+		{"POST", "/api/v1/auth/login", `{"email":"owner@example.test","password":"test-password-123"}`, "", 200},
+		{"GET", "/api/v1/auth/me", "", token, 200},
+		{"GET", "/api/v1/user-picks", "", otherToken, 401},
+	} {
+		r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		r.Header.Set("Origin", "http://localhost:3000")
+		r.Header.Set("Content-Type", "application/json")
+		if tc.token != "" {
+			r.AddCookie(&http.Cookie{Name: "football_session", Value: tc.token})
+		}
+		w := httptest.NewRecorder()
+		privateHandler.ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Fatalf("private %s: got %d want %d: %s", tc.path, w.Code, tc.status, w.Body.String())
+		}
+	}
 	for _, tc := range []struct {
 		method, path, body, origin string
 		status                     int

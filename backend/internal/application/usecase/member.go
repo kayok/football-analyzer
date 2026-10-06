@@ -14,12 +14,13 @@ import (
 )
 
 type Membership struct {
-	store     ports.MemberStore
-	passwords ports.Passwords
-	tokens    ports.Tokens
-	clock     ports.Clock
-	ids       ports.IDs
-	dummyHash string
+	store      ports.MemberStore
+	passwords  ports.Passwords
+	tokens     ports.Tokens
+	clock      ports.Clock
+	ids        ports.IDs
+	dummyHash  string
+	ownerEmail string
 }
 
 const SessionLifetime = 7 * 24 * time.Hour
@@ -29,7 +30,21 @@ func NewMembership(store ports.MemberStore, passwords ports.Passwords, tokens po
 	if err != nil {
 		return nil, err
 	}
-	return &Membership{store, passwords, tokens, clock, ids, dummy}, nil
+	return &Membership{store: store, passwords: passwords, tokens: tokens, clock: clock, ids: ids, dummyHash: dummy}, nil
+}
+
+// NewPrivateMembership restricts HTTP access to the configured owner, including existing sessions.
+func NewPrivateMembership(store ports.MemberStore, passwords ports.Passwords, tokens ports.Tokens, clock ports.Clock, ids ports.IDs, rawOwnerEmail string) (*Membership, error) {
+	email, err := emailAddress(rawOwnerEmail)
+	if err != nil {
+		return nil, errors.New("OWNER_EMAIL must be a valid owner email")
+	}
+	s, err := NewMembership(store, passwords, tokens, clock, ids)
+	if err != nil {
+		return nil, err
+	}
+	s.ownerEmail = email
+	return s, nil
 }
 func emailAddress(raw string) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(raw))
@@ -44,6 +59,9 @@ func sessionHash(token string) string {
 	return hex.EncodeToString(hash[:])
 }
 func (s *Membership) Register(ctx context.Context, name, rawEmail, password string) (member.Member, string, error) {
+	if s.ownerEmail != "" {
+		return member.Member{}, "", fail("REGISTRATION_CLOSED", "ระบบส่วนตัว ไม่เปิดรับสมัครสมาชิก", 403)
+	}
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 80 {
 		return member.Member{}, "", fail("INVALID_NAME", "ชื่อที่แสดงต้องมี 1–80 ตัวอักษร", 400)
@@ -79,11 +97,11 @@ func (s *Membership) Login(ctx context.Context, rawEmail, password string) (memb
 		return member.Member{}, "", err
 	}
 	hash := user.PasswordHash
-	if err != nil {
+	if err != nil || (s.ownerEmail != "" && email != s.ownerEmail) {
 		hash = s.dummyHash
 	}
 	valid := s.passwords.Verify(hash, password)
-	if !valid || err != nil {
+	if !valid || err != nil || (s.ownerEmail != "" && email != s.ownerEmail) {
 		return member.Member{}, "", fail("INVALID_CREDENTIALS", "อีเมลหรือรหัสผ่านไม่ถูกต้อง", 401)
 	}
 	token, err := s.session(ctx, user.ID)
@@ -102,6 +120,9 @@ func (s *Membership) Current(ctx context.Context, token string) (member.Member, 
 		return member.Member{}, fail("UNAUTHENTICATED", "กรุณาเข้าสู่ระบบ", 401)
 	}
 	user, err := s.store.SessionMember(ctx, sessionHash(token), s.clock.Now())
+	if err == nil && s.ownerEmail != "" && user.Email != s.ownerEmail {
+		return member.Member{}, fail("UNAUTHENTICATED", "กรุณาเข้าสู่ระบบด้วยบัญชีเจ้าของ", 401)
+	}
 	if errors.Is(err, ports.ErrMemberNotFound) {
 		err = fail("UNAUTHENTICATED", "เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", 401)
 	}

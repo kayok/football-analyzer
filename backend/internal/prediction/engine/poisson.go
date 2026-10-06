@@ -9,9 +9,14 @@ import (
 	"math"
 )
 
-type Poisson struct{}
+type Poisson struct{ ModelVersion string }
 
-func (Poisson) Version() string { return "v1-mock-poisson" }
+func (p Poisson) Version() string {
+	if p.ModelVersion != "" {
+		return p.ModelVersion
+	}
+	return "v1-mock-poisson"
+}
 func masses(lambda float64) ([]float64, error) {
 	if math.IsNaN(lambda) || math.IsInf(lambda, 0) || lambda <= 0 {
 		return nil, errors.New("invalid expected goals")

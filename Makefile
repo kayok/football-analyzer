@@ -5,7 +5,7 @@ endif
 export GOCACHE := /tmp/football-go-cache
 NODE_BIN := $(HOME)/.nvm/versions/node/$(shell cat .nvmrc 2>/dev/null)/bin
 export PATH := $(NODE_BIN):$(PATH)
-.PHONY: db-up db-down db-reset migrate migrate-down migrate-status seed backend worker frontend dev test verify test-integration
+.PHONY: db-up db-down db-reset migrate migrate-down migrate-status seed owner backend worker frontend dev test verify test-integration
 
 db-up:
 	docker compose up -d --wait
@@ -30,6 +30,9 @@ migrate-status:
 
 seed:
 	cd backend && go run ./cmd/manage seed
+
+owner:
+	bash scripts/create-owner.sh
 
 backend:
 	cd backend && go run ./cmd/api
