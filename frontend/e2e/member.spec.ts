@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 // Mock API requests so the owner login test never changes real accounts.
-test("owner login, no registration, logout and mobile layout", async ({ page }) => {
+test("owner login, no registration, logout and mobile layout", async ({
+  page,
+}) => {
   let authenticated = false;
   const user = {
     id: "test-member",
@@ -21,12 +23,20 @@ test("owner login, no registration, logout and mobile layout", async ({ page }) 
     } else if (path === "/api/v1/auth/login") {
       const input = route.request().postDataJSON();
       authenticated =
-        input.email === user.email &&
-        input.password === "Test!1234";
+        input.email === user.email && input.password === "Test!1234";
       status = authenticated ? 200 : 401;
       body = authenticated
         ? user
         : { error: { message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" } };
+    } else if (path === "/api/v1/sync") {
+      body = {
+        state: "idle",
+        message: "ยังไม่ได้ซิงก์",
+        automatic: true,
+        next_scheduled_at: null,
+        last_success_at: null,
+        retry_at: null,
+      };
     } else if (path === "/api/v1/matches/today") {
       body = { items: [], total: 0, offset: 0, limit: 200 };
     } else {
@@ -41,8 +51,12 @@ test("owner login, no registration, logout and mobile layout", async ({ page }) 
   });
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.getByRole("button", { name: /สมัครสมาชิก/ })).toHaveCount(0);
-  await expect(page.locator(".auth-panel")).toContainText("ไม่เปิดรับสมัครสมาชิก");
+  await expect(page.getByRole("button", { name: /สมัครสมาชิก/ })).toHaveCount(
+    0,
+  );
+  await expect(page.locator(".auth-panel")).toContainText(
+    "ไม่เปิดรับสมัครสมาชิก",
+  );
   await page.getByLabel("อีเมล", { exact: true }).fill(user.email);
   await page.getByLabel("รหัสผ่าน", { exact: true }).fill("Test!1234");
   await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
@@ -66,11 +80,17 @@ test("owner login, no registration, logout and mobile layout", async ({ page }) 
     await page.setViewportSize({ width, height: 844 });
     await expect(page.locator(".member-menu")).toContainText(user.email);
     expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
       `Authenticated layout overflows at ${width}px`,
     ).toBe(true);
-    await expect(page.getByRole("link", { name: /ประวัติและผลลัพธ์/ }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "ออกจากระบบ", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /ประวัติและผลลัพธ์/ }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "ออกจากระบบ", exact: true }),
+    ).toBeVisible();
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "ออกจากระบบ", exact: true }).click();

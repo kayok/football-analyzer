@@ -23,10 +23,14 @@ type Handler struct {
 	members  *usecase.Membership
 	mu       sync.Mutex
 	attempts map[string]attempt
+	syncer   *usecase.SyncManager
 }
 
-func New(svc *usecase.Service, members *usecase.Membership, origin string, log *slog.Logger, clock ports.Clock) http.Handler {
+func New(svc *usecase.Service, members *usecase.Membership, origin string, log *slog.Logger, clock ports.Clock, syncers ...*usecase.SyncManager) http.Handler {
 	h := &Handler{svc: svc, origin: origin, log: log, members: members, attempts: make(map[string]attempt), clock: clock}
+	if len(syncers) > 0 {
+		h.syncer = syncers[0]
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("POST /api/v1/auth/register", h.register)
@@ -42,6 +46,8 @@ func New(svc *usecase.Service, members *usecase.Membership, origin string, log *
 	mux.HandleFunc("DELETE /api/v1/user-picks/{id}", h.cancel)
 	mux.HandleFunc("GET /api/v1/history", h.history)
 	mux.HandleFunc("GET /api/v1/history/{date}", h.history)
+	mux.HandleFunc("GET /api/v1/sync", h.syncStatus)
+	mux.HandleFunc("POST /api/v1/sync", h.startSync)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		defer func() {

@@ -22,7 +22,11 @@ func main() {
 		if *finish != "" {
 			err = svc.FinishDemo(ctx, *finish, *home, *away)
 		} else {
-			err = svc.Run(ctx, false)
+			syncer, syncErr := bootstrap.Sync(ctx, store, svc, slog.Default())
+			err = syncErr
+			if err == nil {
+				err = syncer.Run(ctx)
+			}
 		}
 	}
 	if err != nil {

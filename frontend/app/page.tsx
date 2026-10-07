@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useResource, Feedback, useTimezone } from "../components/resource";
 import { RecommendationCard } from "../components/recommendation-card";
 import type { Card, Page } from "../lib/types";
+import { SyncControl } from "../components/sync-control";
 export default function Today() {
   const tz = useTimezone();
   const [filter, setFilter] = useState("ALL");
@@ -29,6 +30,7 @@ export default function Today() {
           ↻ โหลดข้อมูลใหม่
         </button>
       </header>
+      <SyncControl onSynced={reload} />
       <div className="summary">
         <div>
           <span>คู่แข่งขันวันนี้</span>
@@ -97,7 +99,7 @@ export default function Today() {
         ยังไม่คุ้มหรือข้อมูลใช้ไม่ได้
         <br />
         <small>
-          ราคามีอายุไม่เกิน 15 นาที กรุณารัน worker เพื่อซิงก์ข้อมูล
+          ราคามีอายุไม่เกิน 15 นาที ใช้ปุ่มซิงก์ข้อมูลเพื่ออัปเดตจาก API
           ราคาต้นทางอาจยังเก่าเกินเกณฑ์แม้เพิ่งซิงก์
         </small>
       </div>

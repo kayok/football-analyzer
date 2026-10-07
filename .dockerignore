@@ -1,0 +1,14 @@
+.git
+.agents
+.codex
+.env*
+**/.env*
+**/node_modules
+**/.next
+**/bin
+**/dist
+**/coverage
+**/test-results
+**/playwright-report
+**/*.log
+**/*.tsbuildinfo

@@ -1,0 +1,96 @@
+# Use explicitly: docker compose --env-file .env.docker -f docker-compose.yaml up -d --build
+# compose.yaml remains the database-only local development setup.
+name: football-analyzer
+
+x-backend: &backend
+  image: football-analyzer-backend:local
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  environment: &backend-env
+    DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL with host postgres and port 5432}
+    OWNER_EMAIL: ${OWNER_EMAIL:?Set OWNER_EMAIL}
+    OWNER_NAME: ${OWNER_NAME:-Owner}
+    APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Bangkok}
+    PLAY_EV_THRESHOLD: ${PLAY_EV_THRESHOLD:-0.05}
+    ODDS_MAX_AGE: ${ODDS_MAX_AGE:-15m}
+    FOOTBALL_PROVIDER: ${FOOTBALL_PROVIDER:-mock}
+    API_FOOTBALL_KEY: ${API_FOOTBALL_KEY:-}
+    API_FOOTBALL_LEAGUES: ${API_FOOTBALL_LEAGUES:-39,140,135,78,61}
+    API_FOOTBALL_MAX_REQUESTS: ${API_FOOTBALL_MAX_REQUESTS:-50}
+    SYNC_AUTO_ENABLED: ${SYNC_AUTO_ENABLED:-true}
+    SYNC_INTERVAL: ${SYNC_INTERVAL:-24h}
+    SYNC_COOLDOWN: ${SYNC_COOLDOWN:-30m}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - football_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    <<: *backend
+    command: ["/app/manage", "migrate-up"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      API_HOST: 0.0.0.0
+      API_PORT: "8080"
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    stop_grace_period: 30s
+
+  frontend:
+    image: football-analyzer-frontend:local
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:8080
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  worker:
+    <<: *backend
+    profiles: ["tools"]
+    command: ["/app/worker"]
+    restart: "no"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  football_pgdata:

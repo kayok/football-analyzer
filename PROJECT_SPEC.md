@@ -1159,3 +1159,22 @@ using a real PostgreSQL database in Docker and mock football data.
 - Derive daily usage only from valid provider-reported limit and remaining values. Low/moderate/high thresholds are below 50%, at least 50%, and at least 80%; zero remaining is exhausted.
 - Stop further calls in the same run if the provider reports zero daily or minute remaining quota. Do not retry automatically or log API keys, request headers or upstream response bodies.
 - Display this report in worker terminal logs. Persistent and frontend quota dashboards are outside this extension.
+
+# 35. Owner-triggered and automatic sync (requested extension)
+
+- Add authenticated owner GET/POST /api/v1/sync. POST reserves a shared PostgreSQL advisory lock and returns 202 while a bounded background job runs independently of the HTTP request. Existing owner-only authorization and origin checks apply.
+- Web, scheduled and CLI sync share one database lock and persisted status/cooldown; reject overlapping jobs with 409 and early repeats with 429. Default cooldown is 30 minutes, including failures.
+- The API process hosts an optional interval scheduler (not a new service). Default example is enabled with a 24-hour interval; the first run waits one interval, subsequent due times derive from persisted attempts. Check due work every minute while API runs; no immediate startup sync or automatic retries.
+- Persist running/succeeded/failed status, source, timestamps, last success and retry time. Expired running state is reported interrupted after the two-minute job deadline. Never expose upstream credentials or raw errors in status.
+- Preserve existing fixtures, picks and historical snapshots. Fetch before the application transaction; failures roll back the generation. An empty provider response never clears saved fixtures. Today may naturally change at midnight or when kickoff is rescheduled.
+- Show owner sync controls on mobile, retain displayed cards during sync/fetch failures, poll database status only and reload matches after successful completion. Status polling must never call external APIs.
+- Scheduling does not resolve provider plan restrictions or guarantee daily quota availability. Public VPS deployment and HTTPS remain separate work.
+
+# 36. Container packaging (requested extension)
+
+- Provide backend/frontend multi-stage Dockerfiles and an explicit docker-compose.yaml for the whole application; preserve the database-only compose.yaml and existing make workflow.
+- Build API, management and worker binaries in one backend image; package Next.js standalone with a same-origin proxy to the internal API service.
+- Run versioned migrations after PostgreSQL becomes healthy and before API startup. Do not automatically seed, call football providers during startup, or delete volumes.
+- Bind the API to a configurable API_HOST (localhost by default, 0.0.0.0 only inside Compose). Publish only the frontend on host loopback; never publish database/API ports in this stack.
+- Use persistent database storage, non-root application processes, healthchecks, restart policies and secret-free build contexts. Keep the new stack's data separate from local development and document backup/restore for existing data.
+- Container packaging does not deploy to a VPS or configure public HTTPS; those remain explicit deployment steps.

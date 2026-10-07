@@ -20,6 +20,8 @@
 
 ## เริ่มใช้งาน
 
+หากต้องการรันทุกส่วนด้วย Docker โดยไม่ติดตั้ง Go/Node.js บน VPS ดูหัวข้อ [รันทั้งแอปด้วย Docker](#รันทั้งแอปด้วย-docker) ด้านล่าง
+
 ต้องมี Go 1.26+, Node.js 24 LTS, npm, Docker และ Docker Compose ไม่ต้องติดตั้ง PostgreSQL ลงเครื่อง
 
 ```bash
@@ -331,7 +333,7 @@ make db-reset CONFIRM=DELETE_DATABASE
 - ถ้า Docker permission denied ให้ตรวจสิทธิ์เข้าถึง Docker daemon ของผู้ใช้
 - หาก backend บอก relation ไม่มี ให้รัน `make migrate` ก่อน `make seed`
 - หาก browser แจ้ง origin denied ให้เปิด http://localhost:3000 ให้ตรง FRONTEND_ORIGIN หรือแก้ configuration แล้ว restart API
-- หากราคาเก่าจนเลือกไม่ได้ ให้รัน `make worker` แล้วกดโหลดข้อมูลใหม่ การโหลดหน้าอย่างเดียวไม่สร้างราคาใหม่
+- หากราคาเก่าจนเลือกไม่ได้ ใช้ปุ่มซิงก์ข้อมูล หรือรัน `make worker` แล้วกดโหลดข้อมูลใหม่ การโหลดหน้าอย่างเดียวไม่สร้างราคาใหม่
 - หากพบ hydration error ให้ดู attribute ที่ต่างกันในรายละเอียด error แล้วลองโปรไฟล์ Chrome ที่ไม่มีส่วนขยาย หากหาย ให้ปิดส่วนขยายที่แก้ HTML ก่อน React โหลด; ไม่ควรซ่อน error โดยไม่ตรวจสาเหตุ
 - หาก sandbox ของเครื่องมือปิดกั้น localhost หรือ subprocess ของ build ให้รันคำสั่งเดียวกันใน terminal ปกติ
 
@@ -344,9 +346,80 @@ Implement `AISummaryProvider.Reasons` สำหรับคำอธิบาย
 ## งานที่ยังไม่อยู่ในรุ่นนี้
 
 - AI provider จริง และโมเดลขั้นสูง เช่น measured xG, team ratings และ lineup adjustments
-- การตั้งเวลาซิงก์อัตโนมัติ และการคำนวณ CLV
+- การคำนวณ CLV
 - การกำหนดทุนเป็นบาท และการเชื่อมต่อส่งเดิมพัน
 - Google sign-in, ยืนยันอีเมล และกู้รหัสผ่าน
 - การเปิดใช้งานสาธารณะ ซึ่งต้องเพิ่ม TLS และการเตรียมระบบสำหรับ deployment
 
 รายละเอียดกฎธุรกิจและขอบเขตงานอยู่ใน [PROJECT_SPEC.md](PROJECT_SPEC.md) แนวทางสำหรับผู้พัฒนาและ agent อยู่ใน [AGENTS.md](AGENTS.md)
+
+## ซิงก์จากหน้าเว็บและตามเวลา
+
+หลังอัปเดตโค้ดให้รัน `make migrate` แล้ว restart API หน้า “วันนี้” มีปุ่ม **ซิงก์ข้อมูล** สำหรับเจ้าของ และแสดงผลสำเร็จล่าสุด/เวลาที่กดซ้ำได้ ปุ่ม **โหลดข้อมูลใหม่** ยังคงอ่านฐานข้อมูลเท่านั้น
+
+```dotenv
+SYNC_AUTO_ENABLED=true
+SYNC_INTERVAL=24h
+SYNC_COOLDOWN=30m
+```
+
+ตัวตั้งเวลาอยู่ใน Go API ไม่ต้องรัน worker อีกตัวตลอดเวลา API ต้องทำงานต่อเนื่องบน VPS เช่นผ่าน systemd การรัน API ครั้งแรกจะรอหนึ่งช่วงเวลา; ถ้าเคยซิงก์แล้วจะใช้เวลาครั้งล่าสุดที่เก็บในฐานข้อมูล ตรวจรอบที่ถึงกำหนดทุกนาที เปลี่ยน .env แล้ว restart API
+
+วันละครั้งเป็นค่าเริ่มต้นเพื่อคุมโควตา ไม่เพียงพอสำหรับราคาที่ต้องสดภายใน 15 นาที หากเพิ่มความถี่ต้องประเมินแพ็กเกจ API และจำนวน requests ต่อรอบ ช่วงเวลาอย่างน้อย 15m; cooldown อย่างน้อย 1m ไม่มีการ retry อัตโนมัติทันทีเมื่อผิดพลาด
+
+`make worker` ยังใช้ได้ แต่ร่วมล็อกกับปุ่มและตัวตั้งเวลา ป้องกันงานซ้อนข้าม process และใช้ cooldown เดียวกัน (409 เมื่อกำลังรัน, 429 เมื่อยังอยู่ในช่วงพัก) ทั้งรอบที่สำเร็จและล้มเหลวใช้โควตาได้ Cooldown ช่วยลดการกดซ้ำ แต่ไม่รับประกันว่าไม่เกินโควตารายวัน ให้ตรวจยอดที่ dashboard ผู้ให้บริการ
+
+ระหว่างซิงก์เว็บแสดงข้อมูลเดิม หาก upstream ล้มเหลว/บันทึกไม่สำเร็จ ข้อมูลเดิมและประวัติไม่ถูกล้าง เมื่อสำเร็จหน้า Today โหลดค่าล่าสุดโดยอัตโนมัติ การเปลี่ยนวันหรือเลื่อน kickoff อาจทำให้คู่ย้ายออกจาก Today แต่ประวัติยังอยู่ API Free ที่ไม่รองรับฤดูกาลปัจจุบันยังคงซิงก์ไม่สำเร็จ การเพิ่มปุ่มไม่ได้ปลดข้อจำกัดแพ็กเกจ
+
+สถานะเก็บใน PostgreSQL; restart แล้วยังคง cooldown และผลสำเร็จล่าสุด หาก process หยุดกลางงาน สถานะจะแจ้งว่าขัดจังหวะหลังหมดเวลา 2 นาที บันทึกข้อมูลฟุตบอลกับสถานะเป็นคนละ transaction; ถ้า process หยุดหลัง commit แต่ก่อนบันทึกสถานะ ข้อมูลอาจอัปเดตแล้วแม้สถานะยังไม่ยืนยัน ให้ใช้โหลดข้อมูลใหม่ได้
+
+## รันทั้งแอปด้วย Docker
+
+ใช้ Docker Engine และ Compose plugin บน Linux ได้ ไม่ต้องติดตั้ง Go, Node.js หรือ PostgreSQL บน host ไฟล์ `docker-compose.yaml` รัน PostgreSQL → migration → Go API → Next.js ตามลำดับ พร้อม healthchecks และ restart policy ส่วน `compose.yaml` เดิมยังเป็นฐานข้อมูลสำหรับ `make dev` ให้ระบุ `-f docker-compose.yaml` เสมอเมื่อรันทั้งแอป
+
+```bash
+# ทำครั้งแรกเท่านั้น ไม่ copy ทับไฟล์ที่ตั้งค่าแล้ว
+cp -n .env.docker.example .env.docker
+chmod 600 .env.docker
+# แก้ OWNER_EMAIL, POSTGRES_PASSWORD และ DOCKER_DATABASE_URL ให้ตรงกัน
+docker compose --env-file .env.docker -f docker-compose.yaml up -d --build
+docker compose --env-file .env.docker -f docker-compose.yaml ps
+```
+
+`DOCKER_DATABASE_URL` ต้องใช้ host `postgres` และ port `5432` ไม่ใช้ localhost หากรหัสผ่านมีอักขระพิเศษ ให้ URL-encode เฉพาะส่วนรหัสผ่านใน URL; ค่า POSTGRES_PASSWORD ยังใช้รหัสจริง เปลี่ยน provider/key ใน `.env.docker` หากใช้ข้อมูลจริง ไม่ส่ง `.env.docker` เข้า Git หรือ Docker image
+
+เว็บเปิดที่ **http://localhost:3000** บนเครื่องที่รัน Docker เผยแพร่เฉพาะพอร์ตเว็บบน loopback; API และ PostgreSQL ไม่มีพอร์ตเปิดบน host บน VPS จึงใช้ต่อกับ reverse proxy และ HTTPS หรือ SSH tunnel ได้ การเพิ่มไฟล์นี้ยังไม่ได้ติดตั้ง reverse proxy/ใบรับรองหรือเปิดเว็บสู่สาธารณะ หากเปลี่ยน WEB_PORT ให้ FRONTEND_ORIGIN ตรงกับ URL ที่ browser ใช้
+
+สร้างเจ้าของสำหรับฐานข้อมูลใหม่ โดยรับรหัสผ่านจาก stdin ไม่ใส่รหัสใน command history:
+
+```bash
+read -r -s -p 'Owner password: ' owner_password
+printf '\n'
+printf '%s' "$owner_password" | docker compose --env-file .env.docker -f docker-compose.yaml run --rm -T --no-deps api /app/manage create-owner
+unset owner_password
+```
+
+คำสั่งนี้ไม่เปลี่ยนรหัสของบัญชีที่มีอยู่แล้ว ให้ใช้ OWNER_EMAIL ตรงกับบัญชีเดิม หากใช้ mock และต้องการข้อมูลตัวอย่าง:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.yaml run --rm --no-deps api /app/manage seed
+```
+
+ระบบไม่ seed หรือเรียก API ฟุตบอลระหว่าง build/startup ตัวตั้งเวลาทำงานใน API ทุก 24h ตามค่าเริ่มต้น ไม่ต้องเปิด worker ค้างไว้ สามารถซิงก์ผ่านปุ่มเจ้าของ หรือรัน worker ครั้งเดียว:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.yaml run --rm worker
+docker compose --env-file .env.docker -f docker-compose.yaml logs --tail=100 -f api frontend
+```
+
+ทั้งปุ่ม ตัวตั้งเวลาและ worker ร่วมล็อก/cooldown เดียวกัน หลังแก้โค้ดให้รัน `up -d --build` ใหม่; หลังแก้ค่าตัวแปรให้รัน `up -d` เพื่อสร้าง container ใหม่ การเปลี่ยน URL ของ API ภายในต้อง rebuild frontend เพราะ Next.js rewrites ถูกสร้างตอน build
+
+ข้อมูลอยู่ใน named volume ของ Compose project `football-analyzer` แยกจากฐานข้อมูลเดิมของ `make dev` ไม่ย้ายข้อมูลเดิมให้อัตโนมัติ หากต้องการบัญชีและประวัติเดิมบน VPS ต้อง backup/restore PostgreSQL ก่อนใช้ระบบจริง เปลี่ยนรหัสใน env ไม่ได้เปลี่ยนรหัสใน volume ที่มีอยู่แล้ว
+
+หยุดระบบโดยเก็บข้อมูลไว้:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.yaml down
+```
+
+อย่าเพิ่ม `--volumes` หรือ `-v` หากต้องการเก็บบัญชีและประวัติ การตั้งค่า HTTPS, Secure cookies หลัง reverse proxy และการสำรองข้อมูลต้องเตรียมก่อนเปิดใช้งานสาธารณะ

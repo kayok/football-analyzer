@@ -132,3 +132,29 @@ func TestRealSyncPreservesSnapshotsAndAcceptsRescheduledFinalResult(t *testing.T
 		}
 	}
 }
+
+type failedProvider struct{}
+
+func (failedProvider) Fetch(context.Context, time.Time, string) (ports.State, error) {
+	return ports.State{}, errors.New("provider unavailable")
+}
+func TestSyncFailureAndEmptyResponsePreserveExistingMatch(t *testing.T) {
+	now := time.Date(2026, 10, 7, 8, 0, 0, 0, time.UTC)
+	for _, failFetch := range []bool{true, false} {
+		store := &memoryStore{state: ports.State{Matches: []match.Match{{ID: "saved", Provider: "real-source", Kickoff: now.Add(time.Hour), Status: "scheduled"}}}}
+		svc := New(store, fixedClock{now}, ids{}, unavailableEngine{}, provider{}, summary{}, rec.Rules{}, "UTC").WithProvider("real-source").WithRealData()
+		if failFetch {
+			svc.football = failedProvider{}
+		}
+		err := svc.Run(context.Background(), false)
+		if failFetch && err == nil {
+			t.Fatal("fetch failure ignored")
+		}
+		if !failFetch && err != nil {
+			t.Fatal(err)
+		}
+		if len(store.state.Matches) != 1 || store.state.Matches[0].ID != "saved" {
+			t.Fatal("existing match lost", store.state)
+		}
+	}
+}

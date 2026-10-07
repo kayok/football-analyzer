@@ -291,7 +291,42 @@ func TestPostgresVerticalSlice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	privateHandler := delivery.New(svc, privateMembers, "http://localhost:3000", slog.New(slog.NewTextHandler(io.Discard, nil)), clk)
+	lock, acquired, err := store.TrySyncLock(ctx)
+	if err != nil || !acquired {
+		t.Fatal("sync lock", err)
+	}
+	_, acquired, err = store.TrySyncLock(ctx)
+	if err != nil || acquired {
+		t.Fatal("overlapping sync accepted", err)
+	}
+	if err = lock.Save(ctx, ports.SyncStatus{State: "succeeded", LastSuccessAt: &clk.now}); err != nil {
+		t.Fatal(err)
+	}
+	lock.Release()
+	persisted, err := store.SyncStatus(ctx)
+	if err != nil || persisted.LastSuccessAt == nil {
+		t.Fatal("sync status not persisted", err)
+	}
+	syncer := usecase.NewSyncManager(ctx, store, svc, clk, 30*time.Minute, 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	privateHandler := delivery.New(svc, privateMembers, "http://localhost:3000", slog.New(slog.NewTextHandler(io.Discard, nil)), clk, syncer)
+	for _, tc := range []struct {
+		method, token, origin string
+		status                int
+	}{
+		{"GET", "", "", 401}, {"GET", otherToken, "", 401}, {"GET", token, "", 200},
+		{"POST", token, "", 403}, {"POST", otherToken, "http://localhost:3000", 401},
+	} {
+		r := httptest.NewRequest(tc.method, "/api/v1/sync", nil)
+		r.Header.Set("Origin", tc.origin)
+		if tc.token != "" {
+			r.AddCookie(&http.Cookie{Name: "football_session", Value: tc.token})
+		}
+		w := httptest.NewRecorder()
+		privateHandler.ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Fatalf("sync authorization: got %d want %d", w.Code, tc.status)
+		}
+	}
 	for _, tc := range []struct {
 		method, path, body, token string
 		status                    int
